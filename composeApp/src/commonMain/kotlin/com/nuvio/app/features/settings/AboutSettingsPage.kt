@@ -76,6 +76,7 @@ internal fun LazyListScope.aboutSettingsContent(
                 if (onCheckForUpdatesClick != null) {
                     SettingsGroupDivider(isTablet = isTablet)
                     UpdateChannelSettingsRow(isTablet = isTablet)
+                    AutoUpdateSettingsRows(isTablet = isTablet) // knuvio
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_root_check_updates_title),

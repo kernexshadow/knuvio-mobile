@@ -3,6 +3,10 @@
     <cache-path
         name="nuvio_updates"
         path="updates/" />
+    <!-- knuvio: updates downloaded for automatic installs. -->
+    <files-path
+        name="nuvio_update_files"
+        path="updates/" />
     <cache-path
         name="nuvio_subtitles"
         path="subtitles/" />

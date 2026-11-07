@@ -36,8 +36,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,6 +70,7 @@ import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.action_update
 import nuvio.composeapp.generated.resources.updates_debug_test_complete
 import nuvio.composeapp.generated.resources.updates_downloading_progress
+import nuvio.composeapp.generated.resources.updates_installed_automatically
 import nuvio.composeapp.generated.resources.updates_message_allow_installs
 import nuvio.composeapp.generated.resources.updates_message_ready
 import nuvio.composeapp.generated.resources.updates_no_release_notes
@@ -99,7 +102,14 @@ fun AppUpdaterHost(
     }
 
     val update = state.update
-    val showBanner = state.showDialog && update != null
+    // knuvio: the "updated" banner after an automatic install comes before an available update. The last release
+    // shown stays in the banner while it slides away.
+    val installedUpdate = state.installedUpdate
+    val shownUpdate = installedUpdate ?: update?.takeIf { state.showDialog }
+    var lastShown by remember { mutableStateOf<Pair<AppUpdate, Boolean>?>(null) }
+    val bannerContent = shownUpdate?.let { it to (installedUpdate != null) } ?: lastShown
+    SideEffect { if (shownUpdate != null) lastShown = bannerContent }
+    val showBanner = shownUpdate != null
 
     Column(modifier = modifier) {
         AnimatedVisibility(
@@ -113,14 +123,16 @@ fun AppUpdaterHost(
                 animationSpec = tween(durationMillis = 240),
             ) + fadeOut(animationSpec = tween(durationMillis = 150)),
         ) {
-            update?.let { availableUpdate ->
+            bannerContent?.let { (bannerUpdate, isInstalledUpdate) ->
                 AppUpdateBanner(
                     state = state,
-                    update = availableUpdate,
+                    update = bannerUpdate,
                     onDownload = controller::downloadUpdate,
                     onInstall = controller::installDownloadedUpdate,
                     onShowReleaseNotes = { showReleaseNotes = true },
                     onDismiss = controller::dismissDialog,
+                    isInstalledUpdate = isInstalledUpdate,
+                    autoDismissPaused = showReleaseNotes,
                 )
             }
         }
@@ -141,9 +153,10 @@ fun AppUpdaterHost(
         }
     }
 
-    if (showReleaseNotes && update != null) {
+    val notesUpdate = shownUpdate ?: update
+    if (showReleaseNotes && notesUpdate != null) {
         ReleaseNotesDialog(
-            update = update,
+            update = notesUpdate,
             onDismiss = { showReleaseNotes = false },
         )
     }
@@ -164,6 +177,8 @@ private fun AppUpdateBanner(
     onInstall: () -> Unit,
     onShowReleaseNotes: () -> Unit,
     onDismiss: () -> Unit,
+    isInstalledUpdate: Boolean = false,
+    autoDismissPaused: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
     val targetProgress = when {
@@ -183,6 +198,7 @@ private fun AppUpdateBanner(
     val dividerColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f)
     val debugTestComplete = state.isDebugTest && !state.isDownloading && !state.isUpdateAvailable
     val subtitle = when {
+        isInstalledUpdate -> stringResource(Res.string.updates_installed_automatically)
         state.errorMessage != null -> state.errorMessage
         state.isDownloading && state.downloadProgress != null -> stringResource(
             Res.string.updates_downloading_progress,
@@ -226,12 +242,16 @@ private fun AppUpdateBanner(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = if (debugTestComplete) Icons.Rounded.CheckCircle else Icons.Rounded.CloudDownload,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(24.dp),
-            )
+            if (isInstalledUpdate) {
+                InstalledUpdateIcon()
+            } else {
+                Icon(
+                    imageVector = if (debugTestComplete) Icons.Rounded.CheckCircle else Icons.Rounded.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -270,7 +290,7 @@ private fun AppUpdateBanner(
                 )
             }
 
-            if (!state.isDownloading && !debugTestComplete) {
+            if (!state.isDownloading && !debugTestComplete && !isInstalledUpdate) {
                 Button(
                     onClick = if (state.downloadedApkPath != null) onInstall else onDownload,
                     enabled = state.downloadedApkPath != null || state.isUpdateAvailable,
@@ -289,7 +309,9 @@ private fun AppUpdateBanner(
                 }
             }
 
-            if (!state.isDownloading) {
+            if (isInstalledUpdate) {
+                AutoDismissCloseButton(paused = autoDismissPaused, onDismiss = onDismiss)
+            } else if (!state.isDownloading) {
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier.size(40.dp),

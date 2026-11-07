@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- knuvio: automatic updates (KNUVIO_CHANGES.md, K-06). -->
+<resources>
+    <string name="updates_auto_install_title">Instalar atualizações automaticamente</string>
+    <string name="updates_auto_install_description">Descarregar novas versões por Wi-Fi e instalá-las quando o dispositivo não está a ser usado</string>
+    <string name="updates_auto_install_notice_title">Avisar depois de atualizações automáticas</string>
+    <string name="updates_auto_install_notice_description">Mostrar um banner na abertura seguinte depois de a app se atualizar sozinha</string>
+    <string name="updates_installed_automatically">Atualizada automaticamente enquanto o dispositivo não estava a ser usado</string>
+</resources>

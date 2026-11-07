@@ -12,6 +12,7 @@ knuvio-only and cannot conflict. **Upstream files that knuvio edits** are the on
 | `androidApp/build.gradle.kts` | [K-02](#k-02-application-ids-updater-and-source-link) |
 | `composeApp/.../updater/AppUpdaterRepository.kt`, `composeApp/.../settings/LicensesAttributionsPage.kt` | [K-02](#k-02-application-ids-updater-and-source-link) |
 | `composeApp/.../updater/VersionUtils.kt` | [K-05](#k-05-knuvio-revisions-in-the-updater) |
+| `androidApp/build.gradle.kts`, updater, banner, about page, manifest and `file_paths.xml` files listed in K-06 | [K-06](#k-06-automatic-updates-with-dex-metadata-from-nuviotv) |
 
 Upstream status: **knuvio only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the change
 can be dropped from knuvio after merging X.
@@ -86,3 +87,41 @@ can be dropped from knuvio after merging X.
 - **Upstream status:** knuvio only.
 - **Watch:** upstream edits to `VersionUtils.kt` will conflict. Keep the `knuvioRevision` comparison as the last tie-breaker
   and run the updater tests (see `.claude/CLAUDE.md`).
+
+## K-06 Automatic updates with dex metadata (from NuvioTV)
+
+- **Why:** the same in-app updater as NuvioTV and knuvio TV: updates compiled with their baseline profile at install time,
+  downloaded in the background, and installed without a confirmation screen when the user opts in.
+- **What:** a port of NuvioTV's updater work by kernexshadow
+  ([#4121](https://github.com/NuvioMedia/NuvioTV/pull/4121) background downloads, silent installs, dex metadata and the
+  "updated" banner; [#4239](https://github.com/NuvioMedia/NuvioTV/pull/4239) installs on adopted storage;
+  [#4344](https://github.com/NuvioMedia/NuvioTV/pull/4344) no dex metadata for debuggable builds), adapted to the mobile
+  app's Kotlin Multiplatform updater:
+  - Every update installs through a PackageInstaller session that carries the APK's own `.dm` (Android 9+), so ART
+    compiles the new version during the install. The release build embeds AGP's per-API `.dm` files under
+    `assets/updater_dm`. A failed session retries without the `.dm`, then falls back to the system installer.
+  - Settings → About → "Install updates automatically" (Android 12+, off by default): a job checks every 12 hours and
+    downloads a new release, and another installs it while the device is idle, without asking. "Notify after automatic
+    updates" (on by default) shows the "updated" banner, with a green check and the release notes, on the next launch;
+    it closes by itself after 20 seconds.
+  - Differences from NuvioTV: background checks and downloads wait for an unmetered network and run only while automatic
+    installs are on (the mobile app has no update banner setting, and phones may be on mobile data); updates the user
+    starts from the banner are downloaded to the same place, so a background download is reused.
+- **Files:** new `composeApp/src/commonMain/.../updater/{AutoUpdate,AutoUpdateBanner}.kt`,
+  `composeApp/src/commonMain/.../settings/AutoUpdateSettings.kt`, `composeApp/src/androidFull/.../updater/{ApkInstaller,
+  AndroidAutoUpdatePlatform,UpdateDexMetadata,UpdateDownloadStore,UpdateInstallResultReceiver,UpdateJobService}.kt`,
+  `composeResources/values{,-pt}/strings_knuvio.xml`, `UpdateDexMetadataTest.kt`. Upstream files edited:
+  `androidApp/build.gradle.kts` (the `.dm` embed task), `androidApp/src/full/AndroidManifest.xml` (permission, job
+  service, result receiver), `composeApp/src/androidMain/res/xml/file_paths.xml` (downloads in `filesDir/updates`),
+  `composeApp/src/androidFull/.../updater/AndroidAppUpdaterPlatform.kt` (registers the platform, session installs),
+  `composeApp/src/commonMain/.../updater/{AppUpdater,AppUpdaterBanner}.kt`, `composeApp/src/commonMain/.../settings/
+  AboutSettingsPage.kt` (one line). Every edit is marked `knuvio`.
+- **Remove:** revert the commit.
+- **Upstream status:** knuvio only. The NuvioTV originals are in NuvioTV releases: #4121 since 1.1.0-beta.8, #4239 and
+  #4344 since 1.1.0-beta.9.
+- **Watch:** upstream changes to the updater files above may conflict; keep the `knuvio` hooks. `composeApp` builds only
+  the Kotlin code of `src/androidFull`: its manifest and resources there are not part of the build, so Android
+  declarations go in `androidApp/src/full`. If NuvioMobile adds its own
+  background updates, drop this entry in favour of upstream's. Check with the updater tests (see `.claude/CLAUDE.md`);
+  on a device, `adb shell cmd jobscheduler run -f com.knuvio.mobile 10020` runs the check and download job and
+  `... 10021` the idle install job.

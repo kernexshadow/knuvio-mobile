@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- knuvio: automatic updates (KNUVIO_CHANGES.md, K-06). -->
+<resources>
+    <string name="updates_auto_install_title">Install updates automatically</string>
+    <string name="updates_auto_install_description">Download new versions on Wi-Fi and install them while the device is idle</string>
+    <string name="updates_auto_install_notice_title">Notify after automatic updates</string>
+    <string name="updates_auto_install_notice_description">Show a banner on the next launch after the app updates itself</string>
+    <string name="updates_installed_automatically">Updated automatically while the device was idle</string>
+</resources>

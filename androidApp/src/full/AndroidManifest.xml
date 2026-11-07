@@ -2,5 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- knuvio: lets the in-app updater install its own updates without a confirmation screen on Android 12+. -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+
+    <application>
+        <!-- knuvio: background update downloads and idle installs, and install session results. -->
+        <service
+            android:name="com.nuvio.app.features.updater.UpdateJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <receiver
+            android:name="com.nuvio.app.features.updater.UpdateInstallResultReceiver"
+            android:exported="false" />
+    </application>
 
 </manifest>

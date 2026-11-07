@@ -43,6 +43,8 @@ data class AppUpdaterUiState(
     val showUnknownSourcesDialog: Boolean = false,
     val errorMessage: String? = null,
     val isDebugTest: Boolean = false,
+    /** knuvio: release installed automatically since the last launch, shown in the banner until dismissed. */
+    val installedUpdate: AppUpdate? = null,
 )
 
 class AppUpdaterController internal constructor(
@@ -64,6 +66,7 @@ class AppUpdaterController internal constructor(
                     updateCheckJob?.cancel()
                     downloadJob?.cancel()
                     _uiState.value.downloadedApkPath?.let(AppUpdaterPlatform::deleteDownloadedApk)
+                    AutoUpdate.platform?.clearDownloads()
                     _uiState.value = AppUpdaterUiState(updateChannel = channel)
                     if (!AppUpdaterPlatform.isDebugBuild) {
                         checkForUpdates(force = true, showNoUpdateFeedback = false)
@@ -80,6 +83,18 @@ class AppUpdaterController internal constructor(
             return
         }
         autoCheckStarted = true
+        AutoUpdate.platform?.onLaunch()?.let { installedTag ->
+            val installed = AppUpdate(
+                tag = installedTag,
+                title = installedTag,
+                notes = "",
+                releaseUrl = null,
+                assetName = "",
+                assetUrl = "",
+                assetSizeBytes = null,
+            )
+            _uiState.update { state -> state.copy(installedUpdate = installed) }
+        }
         checkForUpdates(force = false, showNoUpdateFeedback = false)
     }
 
@@ -115,6 +130,9 @@ class AppUpdaterController internal constructor(
                 val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
                 val ignored = ignoredTag != null && ignoredTag == update.tag
                 val shouldShowDialog = remoteNewer && (force || !ignored)
+                // knuvio: reuse an APK the background job already downloaded, or ask it to download this one.
+                val downloadedPath = if (remoteNewer) AutoUpdate.platform?.downloadedApkPath(update) else null
+                if (remoteNewer && downloadedPath == null && !ignored) AutoUpdate.platform?.onNewerReleaseFound()
 
                 _uiState.update { state ->
                     state.copy(
@@ -123,12 +141,16 @@ class AppUpdaterController internal constructor(
                         isUpdateAvailable = remoteNewer,
                         isDownloading = false,
                         downloadProgress = null,
-                        downloadedApkPath = state.downloadedApkPath.takeIf {
+                        downloadedApkPath = downloadedPath ?: state.downloadedApkPath.takeIf {
                             remoteNewer && state.update?.tag == update.tag
                         },
                         showDialog = shouldShowDialog,
                         showUnknownSourcesDialog = false,
                         errorMessage = null,
+                        // The release just installed carries the notes the "updated" banner can show.
+                        installedUpdate = state.installedUpdate?.let { installed ->
+                            if (installed.tag == update.tag) update else installed
+                        },
                     )
                 }
 
@@ -178,6 +200,7 @@ class AppUpdaterController internal constructor(
                 showDialog = false,
                 showUnknownSourcesDialog = false,
                 errorMessage = null,
+                installedUpdate = null,
             )
         }
     }
@@ -210,10 +233,7 @@ class AppUpdaterController internal constructor(
                 )
             }
 
-            val result = AppUpdaterPlatform.downloadApk(
-                assetUrl = update.assetUrl,
-                assetName = update.assetName,
-            ) { downloadedBytes, totalBytes ->
+            val onProgress: (Long, Long?) -> Unit = { downloadedBytes, totalBytes ->
                 downloadContext.ensureActive()
                 val progress = if (totalBytes != null && totalBytes > 0L) {
                     (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -224,6 +244,12 @@ class AppUpdaterController internal constructor(
                     if (state.updateChannel == channel) state.copy(downloadProgress = progress) else state
                 }
             }
+            // knuvio: download where the background jobs find it, when the platform supports them.
+            val result = AutoUpdate.platform?.download(update, onProgress) ?: AppUpdaterPlatform.downloadApk(
+                assetUrl = update.assetUrl,
+                assetName = update.assetName,
+                onProgress = onProgress,
+            )
             currentCoroutineContext().ensureActive()
             if (channel != preferences.channel.value) return@launch
             result.onSuccess { path ->
