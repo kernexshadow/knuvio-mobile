@@ -4,14 +4,19 @@ internal data class SemanticVersion(
     val major: Long,
     val minor: Long,
     val patch: Long,
-    val prerelease: List<String>
+    val prerelease: List<String>,
+    // knuvio revision from "+k.N" build metadata. It only breaks ties between
+    // builds of the same upstream version; other build metadata is ignored.
+    val knuvioRevision: Long = 0
 ) : Comparable<SemanticVersion> {
     override fun compareTo(other: SemanticVersion): Int {
         compareValues(major, other.major).takeIf { it != 0 }?.let { return it }
         compareValues(minor, other.minor).takeIf { it != 0 }?.let { return it }
         compareValues(patch, other.patch).takeIf { it != 0 }?.let { return it }
 
-        if (prerelease.isEmpty() && other.prerelease.isEmpty()) return 0
+        if (prerelease.isEmpty() && other.prerelease.isEmpty()) {
+            return compareValues(knuvioRevision, other.knuvioRevision)
+        }
         if (prerelease.isEmpty()) return 1
         if (other.prerelease.isEmpty()) return -1
 
@@ -22,7 +27,8 @@ internal data class SemanticVersion(
                 other.prerelease[index]
             ).takeIf { it != 0 }?.let { return it }
         }
-        return compareValues(prerelease.size, other.prerelease.size)
+        return compareValues(prerelease.size, other.prerelease.size).takeIf { it != 0 }
+            ?: compareValues(knuvioRevision, other.knuvioRevision)
     }
 
     private fun comparePrereleaseIdentifier(left: String, right: String): Int {
@@ -47,8 +53,9 @@ internal object VersionUtils {
     private val versionPattern = Regex(
         "^(\\d+)\\.(\\d+)\\.(\\d+)" +
             "(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?" +
-            "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+            "(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$"
     )
+    private val knuvioRevisionPattern = Regex("^k(?:\\.(\\d+))?$")
 
     fun normalize(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
@@ -64,7 +71,11 @@ internal object VersionUtils {
             prerelease = match.groupValues[4]
                 .takeIf(String::isNotEmpty)
                 ?.split('.')
-                .orEmpty()
+                .orEmpty(),
+            knuvioRevision = knuvioRevisionPattern.matchEntire(match.groupValues[5])
+                ?.groupValues?.get(1)
+                ?.toLongOrNull()
+                ?: 0
         )
     }
 
