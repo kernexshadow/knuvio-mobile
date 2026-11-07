@@ -1,0 +1,231 @@
+name: Sync upstream and release
+
+on:
+  schedule:
+    - cron: "47 */6 * * *" # every 6 hours
+  workflow_dispatch:
+    inputs:
+      manual:
+        description: Manual build - publish the current main as the next knuvio revision (+k.N)
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: Upstream release tag to build (default is the newest upstream release; ignored for manual builds)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: knuvio-sync-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: NuvioMedia/NuvioMobile
+  OWN_WORKFLOW: .github/workflows/knuvio-sync-release.yml
+
+jobs:
+  sync-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          # A PAT is needed to push upstream changes to .github/workflows.
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Resolve release version
+        id: release
+        env:
+          MANUAL: ${{ inputs.manual }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          if [[ "${MANUAL}" == "true" ]]; then
+            # Manual builds reuse the upstream release already merged into main
+            # (the newest one whose commit main contains) and add the next
+            # knuvio revision: <version>+k.1, +k.2, ...
+            remote_tags=$(git ls-remote --tags upstream)
+            tag=""
+            while read -r candidate; do
+              sha=$(awk -v ref="refs/tags/${candidate}^{}" '$2 == ref { print $1 }' <<< "${remote_tags}")
+              [[ -n "${sha}" ]] || sha=$(awk -v ref="refs/tags/${candidate}" '$2 == ref { print $1 }' <<< "${remote_tags}")
+              if [[ -n "${sha}" ]] && git merge-base --is-ancestor "${sha}" HEAD 2>/dev/null; then
+                tag="${candidate}"
+                break
+              fi
+            done < <(gh api "repos/${UPSTREAM_REPO}/releases?per_page=50" --jq '.[] | select(.draft | not) | .tag_name')
+            if [[ -z "${tag}" ]]; then
+              echo "No upstream release found in main." >&2
+              exit 1
+            fi
+            tag_re=$(printf '%s' "${tag}" | sed 's/[.]/\\./g')
+            last=$(gh release list -R "${GITHUB_REPOSITORY}" --limit 200 --json tagName --jq '.[].tagName' |
+              sed -nE "s/^${tag_re}\+k\.([0-9]+)$/\1/p" | sort -n | tail -1)
+            revision=$(( ${last:-0} + 1 ))
+            release_tag="${tag}+k.${revision}"
+            mode=manual
+            skip=false
+          else
+            if [[ -n "${INPUT_TAG}" ]]; then
+              tag="${INPUT_TAG}"
+            else
+              # Newest published release, prereleases included.
+              tag=$(gh api "repos/${UPSTREAM_REPO}/releases" --jq '[.[] | select(.draft | not)][0].tag_name')
+            fi
+            if [[ -z "${tag}" ]]; then
+              echo "No upstream release found." >&2
+              exit 1
+            fi
+            release_tag="${tag}+k"
+            revision=0
+            mode=upstream
+            if gh release view "${release_tag}" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+              echo "Release ${release_tag} already exists; nothing to do."
+              skip=true
+            else
+              skip=false
+            fi
+          fi
+          prerelease=$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${tag}" --jq '.prerelease')
+          echo "Release: ${release_tag} (mode=${mode}, prerelease=${prerelease}, skip=${skip})"
+          {
+            echo "tag=${tag}"
+            echo "release_tag=${release_tag}"
+            echo "revision=${revision}"
+            echo "prerelease=${prerelease}"
+            echo "mode=${mode}"
+            echo "skip=${skip}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Merge upstream release
+        if: steps.release.outputs.skip != 'true' && steps.release.outputs.mode == 'upstream'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "knuvio-sync[bot]"
+          git config user.email "knuvio-sync@users.noreply.github.com"
+          git fetch --no-tags upstream "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          if ! git merge --no-edit -m "Merge upstream ${TAG}" "refs/tags/${TAG}"; then
+            git merge --abort
+            echo "::error::Merging upstream ${TAG} into main has conflicts. Resolve them locally and push main."
+            exit 1
+          fi
+          git push origin HEAD:main
+
+      - name: Disable inherited upstream workflows
+        if: steps.release.outputs.skip != 'true'
+        run: |
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows" \
+            --jq ".workflows[] | select(.state == \"active\" and .path != \"${OWN_WORKFLOW}\") | .id" |
+            while read -r id; do
+              echo "Disabling workflow ${id}"
+              gh workflow disable "${id}" -R "${GITHUB_REPOSITORY}"
+            done
+
+      - name: Set up Java
+        if: steps.release.outputs.skip != 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        if: steps.release.outputs.skip != 'true'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure build properties and signing
+        if: steps.release.outputs.skip != 'true'
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.KNUVIO_LOCAL_PROPERTIES_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.KNUVIO_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.KNUVIO_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.KNUVIO_KEYSTORE_PASSWORD }}
+        run: |
+          missing=()
+          for name in LOCAL_PROPERTIES_BASE64 KEYSTORE_BASE64 KEY_ALIAS KEYSTORE_PASSWORD; do
+            [[ -n "${!name}" ]] || missing+=("${name}")
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing required secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+          printf '%s' "${LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_[A-Z_]+)[[:space:]]*=/d' local.properties
+
+          # The app's Gradle script reads the signing config from local.properties only.
+          keystore_path="${RUNNER_TEMP}/knuvio-release.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          {
+            echo
+            echo "NUVIO_RELEASE_STORE_FILE=${keystore_path}"
+            echo "NUVIO_RELEASE_KEY_ALIAS=${KEY_ALIAS}"
+            # PKCS12 keystores use the store password for the key as well.
+            echo "NUVIO_RELEASE_KEY_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=${KEYSTORE_PASSWORD}"
+          } >> local.properties
+
+      - name: Test updater and build full release APKs
+        if: steps.release.outputs.skip != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+        run: |
+          # The release tag becomes the APK's versionName, never committed: the
+          # in-app updater compares the installed versionName with release tags.
+          ./gradlew :composeApp:testAndroidHostTest --tests 'com.nuvio.app.features.updater.*' \
+            :androidApp:assembleFullRelease -Pnuvio.app.versionName="${RELEASE_TAG}" --stacktrace
+
+      - name: Create GitHub release
+        if: steps.release.outputs.skip != 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          REVISION: ${{ steps.release.outputs.revision }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+          MODE: ${{ steps.release.outputs.mode }}
+        run: |
+          mapfile -t apks < <(find androidApp/build/outputs/apk/full/release -maxdepth 1 -type f -name '*.apk' -print | sort)
+          if (( ${#apks[@]} == 0 )); then
+            echo "No release APKs were produced." >&2
+            exit 1
+          fi
+
+          upstream_link="[${UPSTREAM_REPO} ${TAG}](https://github.com/${UPSTREAM_REPO}/releases/tag/${TAG})"
+          if [[ "${MODE}" == "manual" ]]; then
+            title="knuvio mobile ${TAG} (revision ${REVISION})"
+            previous="${TAG}+k"
+            (( REVISION > 1 )) && previous="${TAG}+k.$(( REVISION - 1 ))"
+            {
+              echo "knuvio mobile revision ${REVISION} of ${upstream_link}."
+              if git rev-parse -q --verify "refs/tags/${previous}" >/dev/null; then
+                echo
+                echo "Changes since ${previous}:"
+                echo
+                git log --no-merges --format='- %s' "${previous}..HEAD"
+              fi
+            } > release-notes.md
+          else
+            title="knuvio mobile ${TAG}"
+            printf '%s\n' \
+              "knuvio mobile build of ${upstream_link}." \
+              "" \
+              "See the upstream release for the changelog." > release-notes.md
+          fi
+
+          args=("${RELEASE_TAG}" --target "$(git rev-parse HEAD)" --title "${title}" --notes-file release-notes.md)
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            args+=(--prerelease)
+          else
+            args+=(--latest)
+          fi
+          gh release create -R "${GITHUB_REPOSITORY}" "${args[@]}" "${apks[@]}"
