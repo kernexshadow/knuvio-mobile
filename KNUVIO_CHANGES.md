@@ -56,6 +56,22 @@ can be dropped from knuvio after merging X.
 - **Watch:** the deep link schemes stay upstream's (`nuvio://`, `stremio://`, `https://nuvio.tv`): with both apps installed,
   Android asks which app opens them, including the Trakt and Simkl login callbacks (`nuvio://auth/...`).
 
+## K-03 Upstream sync and release workflow
+
+- **Why:** follow upstream releases without manual work, and publish signed APKs.
+- **What:** `.github/workflows/knuvio-sync-release.yml`: scheduled merge of upstream release tags, manual `+k.N` revision
+  builds, the release tag passed as `versionName`, disabling inherited workflows, signed release build and GitHub release.
+  Adapted from knuvio TV's workflow. Details in `.claude/CLAUDE.md`.
+- **Files:** `.github/workflows/knuvio-sync-release.yml`.
+- **Remove:** delete the workflow; releases then have to be built by hand.
+- **Upstream status:** knuvio only.
+
+## K-04 Project notes
+
+- **Why:** keep how knuvio mobile works, and why each change exists, next to the code.
+- **Files:** `.claude/CLAUDE.md`, `KNUVIO_CHANGES.md`.
+- **Upstream status:** knuvio only.
+
 ## K-05 knuvio revisions in the updater
 
 - **Why:** manual knuvio builds of the same upstream version (`+k.1`, `+k.2`, …) must be offered as updates, while any newer
