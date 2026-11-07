@@ -66,7 +66,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.nuvio.app"
+        applicationId = "com.knuvio.mobile"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = releaseAppVersionCode
@@ -147,7 +147,7 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        variant.applicationId.set("com.nuviodebug.com")
+        variant.applicationId.set("com.knuvio.mobiledebug")
     }
 }
 
