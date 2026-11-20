@@ -54,6 +54,8 @@ NuvioMobile is GPLv3, so the repository stays public: every published APK must h
   would react to every knuvio release.
 - It runs the updater unit tests, then `:androidApp:assembleFullRelease`, and uploads the four APKs (arm64-v8a,
   armeabi-v7a, x86, x86_64; upstream builds no universal APK).
+- It caps the Gradle heap (6 GB) and the Kotlin daemon (3 GB) in the runner's `~/.gradle/gradle.properties`. The repo's
+  values (12 GB + 8 GB) exceed the 16 GB runner, which then dies with "The hosted runner lost communication with the server".
 - Every `gh` call passes `-R`/an explicit repo: with an `upstream` remote present, `gh` defaults to NuvioMedia.
 - To rebuild a version that already has a release, delete that release and its tag first, then run the workflow again.
 

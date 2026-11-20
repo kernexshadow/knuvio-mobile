@@ -64,6 +64,9 @@ can be dropped from knuvio after merging X.
 - **What:** `.github/workflows/knuvio-sync-release.yml`: scheduled merge of upstream release tags, manual `+k.N` revision
   builds, the release tag passed as `versionName`, disabling inherited workflows, signed release build and GitHub release.
   Adapted from knuvio TV's workflow. Details in `.claude/CLAUDE.md`.
+  The build caps the Gradle heap at 6 GB and the Kotlin daemon at 3 GB in the runner's user-home `gradle.properties`:
+  the repo's 12 GB + 8 GB is more than the 16 GB hosted runner has, and the runner was lost mid-build ("lost communication
+  with the server").
 - **Files:** `.github/workflows/knuvio-sync-release.yml`.
 - **Remove:** delete the workflow; releases then have to be built by hand.
 - **Upstream status:** knuvio only.

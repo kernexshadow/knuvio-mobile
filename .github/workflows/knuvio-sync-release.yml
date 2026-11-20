@@ -175,6 +175,17 @@ jobs:
             echo "NUVIO_RELEASE_STORE_PASSWORD=${KEYSTORE_PASSWORD}"
           } >> local.properties
 
+          # The repo's gradle.properties asks for a 12 GB Gradle heap and an 8 GB
+          # Kotlin daemon, more than the 16 GB hosted runner has: the runner then
+          # starves and is lost mid-build. The user-home file takes precedence.
+          gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+          mkdir -p "${gradle_home}"
+          {
+            echo
+            echo "org.gradle.jvmargs=-Xmx6g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=1g"
+            echo "kotlin.daemon.jvmargs=-Xmx3g"
+          } >> "${gradle_home}/gradle.properties"
+
       - name: Test updater and build full release APKs
         if: steps.release.outputs.skip != 'true'
         env:
