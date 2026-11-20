@@ -13,6 +13,7 @@ knuvio-only and cannot conflict. **Upstream files that knuvio edits** are the on
 | `composeApp/.../updater/AppUpdaterRepository.kt`, `composeApp/.../settings/LicensesAttributionsPage.kt` | [K-02](#k-02-application-ids-updater-and-source-link) |
 | `composeApp/.../updater/VersionUtils.kt` | [K-05](#k-05-knuvio-revisions-in-the-updater) |
 | `androidApp/build.gradle.kts`, updater, banner, about page, manifest and `file_paths.xml` files listed in K-06 | [K-06](#k-06-automatic-updates-with-dex-metadata-from-nuviotv) |
+| `androidApp/build.gradle.kts`, `composeApp/build.gradle.kts`, `LicensesAttributionsPage.kt`, stream, player, addon manager and settings files listed in K-07 | [K-07](#k-07-built-in-usenet-upstream-pr-2725) |
 
 Upstream status: **knuvio only** = not meant for upstream; **upstream PR #N** = proposed; **in upstream since X** = the change
 can be dropped from knuvio after merging X.
@@ -125,3 +126,40 @@ can be dropped from knuvio after merging X.
   background updates, drop this entry in favour of upstream's. Check with the updater tests (see `.claude/CLAUDE.md`);
   on a device, `adb shell cmd jobscheduler run -f com.knuvio.mobile 10020` runs the check and download job and
   `... 10021` the idle install job.
+
+## K-07 Built-in Usenet (upstream PR #2725)
+
+- **Why:** use the same on-device Usenet streaming as knuvio TV (its K-07) on the phone before upstream merges it.
+- **What:** [NuvioMedia/NuvioMobile#2725](https://github.com/NuvioMedia/NuvioMobile/pull/2725) by kernexshadow (branch
+  `feat/built-in-usenet` on kernexshadow/NuvioMobile), a port of NuvioTV's built-in Usenet
+  ([NuvioMedia/NuvioTV#4679](https://github.com/NuvioMedia/NuvioTV/pull/4679)) to the Android app:
+  - Settings → Integrations → Usenet: NNTP providers (with Test provider and NuvioTV's connection tuner) and Newznab indexers,
+    grouped under "Built-in Usenet sources", plus search filters, sorting presets, a custom sorting editor and engine options
+    (automatic fallback, prefetch, pre-warm, performance profile). Sources are stored per profile, encrypted with an Android
+    Keystore key, and never synced.
+  - Results form a "Built-in Usenet" group on the stream screen and in the player's sources panel; the addon manager lists
+    it among the addons, and it counts as an addon for auto-play, next-episode auto-play and source fallback. Addon streams
+    with an `nzbUrl` play through the same engine.
+  - Diagnostics: last startup timings and per-indexer/per-provider source statistics, kept on the device.
+  - The engine is the same pinned [NuvioMedia/nuvio-usenet-engine](https://github.com/NuvioMedia/nuvio-usenet-engine)
+    release as the TV PR (`usenet-native-b6ca59925e184dce`, source `e4b0717ae`). It runs as a child process, packaged as
+    `libnuvio_usenet.so`. The binaries are not in Git: `native/usenet/android.gradle.kts` downloads the four ABIs named in
+    `native/usenet/prebuilt/manifest.json`, checks their SHA-256 and caches them, so the first build needs network access.
+  - Imported at PR head `305f6389a` as cherry-picks of its 17 commits onto `main` (1.1.0-beta.2+k.N), because the branch is
+    based on `cmp-rewrite` past 1.1.0-beta.2 and `main` takes only release tags. The patch is identical to the PR's; only the
+    context lines next to K-02's edits differ.
+- **Files:** new `native/usenet/**` (Gradle adapter, pinned release, licenses), `composeApp/src/*/kotlin/com/nuvio/app/
+  features/usenet/**` and their tests, `composeApp/.../settings/Usenet*.kt`,
+  `composeResources/values/strings_usenet.xml`. Upstream files edited: `androidApp/build.gradle.kts` (engine jniLibs,
+  license assets, debug symbols, the adapter), `composeApp/build.gradle.kts`, `MainActivity.kt`, `MainAppContent.kt`,
+  `StreamDestination.kt`, `StreamLoadingScreen.kt`, `AppFeaturePolicy*.kt` (`usenetEnabled`), `LocalAccountDataCleaner.kt`,
+  `AddonsScreen.kt`, the `Player*` runtime, engine and error files, `ProfileRepository.kt`, the settings models, screen,
+  search, Integrations, playback and licenses pages, and the stream models, parser, card, badge, fetch, cache, search
+  session, auto-play and repository files.
+- **Remove:** revert the 17 commits (or merge an upstream release that contains #2725 and keep upstream's side).
+- **Upstream status:** upstream PR #2725 (open).
+- **Watch:** `LicensesAttributionsPage.kt` and `androidApp/build.gradle.kts` are also edited by K-02/K-06; keep both sides.
+  When #2725 gets new commits, cherry-pick them the same way and update the head above. When an upstream release contains
+  #2725, the merge brings the same changes: resolve conflicts in favour of upstream. Check with
+  `./gradlew :composeApp:testAndroidHostTest --tests 'com.nuvio.app.features.usenet.*' --tests
+  'com.nuvio.app.features.streams.StreamAutoPlaySelectorTest'`.
