@@ -148,7 +148,7 @@ can be dropped from knuvio after merging X.
     release as the TV PR (`usenet-native-b6ca59925e184dce`, source `e4b0717ae`). It runs as a child process, packaged as
     `libnuvio_usenet.so`. The binaries are not in Git: `native/usenet/android.gradle.kts` downloads the four ABIs named in
     `native/usenet/prebuilt/manifest.json`, checks their SHA-256 and caches them, so the first build needs network access.
-  - Imported at PR head `305f6389a` as cherry-picks of its 17 commits onto `main` (1.1.0-beta.2+k.N), because the branch is
+  - Imported at PR head `2a7f9575d` as cherry-picks of its 18 commits onto `main` (1.1.0-beta.2+k.N), because the branch is
     based on `cmp-rewrite` past 1.1.0-beta.2 and `main` takes only release tags. The patch is identical to the PR's; only the
     context lines next to K-02's edits differ.
 - **Files:** new `native/usenet/**` (Gradle adapter, pinned release, licenses), `composeApp/src/*/kotlin/com/nuvio/app/
@@ -156,10 +156,11 @@ can be dropped from knuvio after merging X.
   `composeResources/values/strings_usenet.xml`. Upstream files edited: `androidApp/build.gradle.kts` (engine jniLibs,
   license assets, debug symbols, the adapter), `composeApp/build.gradle.kts`, `MainActivity.kt`, `MainAppContent.kt`,
   `StreamDestination.kt`, `StreamLoadingScreen.kt`, `AppFeaturePolicy*.kt` (`usenetEnabled`), `LocalAccountDataCleaner.kt`,
-  `AddonsScreen.kt`, the `Player*` runtime, engine and error files, `ProfileRepository.kt`, the settings models, screen,
+  `AddonsScreen.kt`, the `Player*` runtime, engine and error files, `ProfileRepository.kt`, `PlaybackSettingsDialogs.kt`
+  (scrolling choice dialogs), the settings models, screen,
   search, Integrations, playback and licenses pages, and the stream models, parser, card, badge, fetch, cache, search
   session, auto-play and repository files.
-- **Remove:** revert the 17 commits (or merge an upstream release that contains #2725 and keep upstream's side).
+- **Remove:** revert the 18 commits (or merge an upstream release that contains #2725 and keep upstream's side).
 - **Upstream status:** upstream PR #2725 (open).
 - **Watch:** `LicensesAttributionsPage.kt` and `androidApp/build.gradle.kts` are also edited by K-02/K-06; keep both sides.
   When #2725 gets new commits, cherry-pick them the same way and update the head above. When an upstream release contains
