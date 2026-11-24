@@ -2055,6 +2055,7 @@ private class NuvioLibmpvView(
                         language = track.language,
                         isSelected = track.isSelected,
                         isForced = track.isForced,
+                        formatBadge = track.formatBadge,
                     )
                 }
 
@@ -2243,11 +2244,15 @@ private class NuvioLibmpvView(
             .filter { node -> node.nodeString("type") == type }
             .mapIndexedNotNull { index, node ->
                 val id = node.nodeInt("id") ?: return@mapIndexedNotNull null
+                val codec = node.nodeString("codec")
+                val isSubtitle = type == "sub"
                 val rawLabel = node.nodeString("title")
                     ?: node.nodeString("external-filename")?.substringAfterLast('/')
-                    ?: node.nodeString("codec")
+                    ?: codec.takeUnless { isSubtitle }
                 val language = node.nodeString("lang") ?: normalizeLanguageCode(rawLabel)
+                val languageLabel = language.takeIf { isSubtitle }?.let(::languageLabelResForCode)
                 val label = rawLabel?.takeIf { it.isNotBlank() }
+                    ?: languageLabel?.let { runBlocking { getString(it) } }
                     ?: runBlocking { getString(Res.string.compose_player_track_number, index + 1) }
                 LibmpvTrack(
                     id = id,
@@ -2260,6 +2265,7 @@ private class NuvioLibmpvView(
                         trackId = id.toString(),
                         hasForcedSelectionFlag = node.nodeBoolean("forced") ?: false,
                     ),
+                    formatBadge = if (isSubtitle) subtitleFormatBadgeForCodec(codec) else null,
                 )
             }
     }
@@ -2271,6 +2277,7 @@ private data class LibmpvTrack(
     val language: String?,
     val isSelected: Boolean,
     val isForced: Boolean,
+    val formatBadge: SubtitleFormatBadge?,
 )
 
 private const val LIBMPV_MAX_VOLUME_PERCENT = 400
@@ -2326,7 +2333,7 @@ private fun SubtitleStyleState.toMpvSubtitleBorderStyle(): String =
 
 private const val MPV_SUBTITLE_FONT_SIZE_SCALE = 55.0 / 18.0
 private const val MPV_SUBTITLE_FONT_SIZE_MIN = 36
-private const val MPV_SUBTITLE_FONT_SIZE_MAX = 122
+private const val MPV_SUBTITLE_FONT_SIZE_MAX = 183
 private const val MPV_SUBTITLE_OUTLINE_SIZE_SCALE = 1.5
 
 private fun ExoPlayer.snapshot(): PlayerPlaybackSnapshot {
@@ -2804,7 +2811,7 @@ private fun ExoPlayer.extractSubtitleTracks(context: Context): List<SubtitleTrac
             SubtitleTrack(
                 index = idx,
                 id = format.id ?: idx.toString(),
-                label = trackNameProvider.getTrackName(format),
+                label = trackNameProvider.getSubtitleTrackName(format),
                 language = format.language,
                 isSelected = group.isSelected,
                 isForced = inferForcedSubtitleTrack(
@@ -2813,11 +2820,24 @@ private fun ExoPlayer.extractSubtitleTracks(context: Context): List<SubtitleTrac
                     trackId = format.id,
                     hasForcedSelectionFlag = hasForcedSelectionFlag,
                 ),
+                formatBadge = format.subtitleFormatBadge(),
             )
         )
         idx++
     }
     return tracks
+}
+
+private fun Format.subtitleFormatBadge(): SubtitleFormatBadge? {
+    if (isAssSubtitleFormat()) return SubtitleFormatBadge.ASS
+    val mimeTypes = listOfNotNull(sampleMimeType) +
+        codecs?.split(',')?.map { it.trim().lowercase() }.orEmpty()
+    return when {
+        MimeTypes.APPLICATION_PGS in mimeTypes -> SubtitleFormatBadge.PGS
+        MimeTypes.APPLICATION_VOBSUB in mimeTypes -> SubtitleFormatBadge.VOBSUB
+        MimeTypes.APPLICATION_DVBSUBS in mimeTypes -> SubtitleFormatBadge.DVB
+        else -> null
+    }
 }
 
 private fun ExoPlayer.selectTrackByIndex(trackType: Int, targetIndex: Int): Boolean {
